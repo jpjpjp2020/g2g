@@ -1,63 +1,104 @@
 package main
 
 import (
-	"bufio"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"log"
+	"net/http"
 	"os"
+	"os/exec"
+	"time"
 
 	"github.com/joho/godotenv"
 )
 
-// func handleWebhook(w http.ResponseWriter, r *http.Request) {
-// 	if os.Getenv("ACTIVATE_TOOL") != "true" {
-// 		fmt.Println("Tool is deactivated.")
-// 		return
-// 	}
-
-// 	// Parse the webhook payload
-// 	// Extract necessary data (commit message, author, etc.)
-
-// 	// Authenticate with GitHub
-// 	// Create a dummy commit in GitHub
-
-// 	fmt.Fprintf(w, "Commit mirrored to GitHub")
-// }
-
 func main() {
 
-	// ANSI color codes
-	green := "\033[32m"
-	red := "\033[31m"
-	yellow := "\033[33m"
-	reset := "\033[0m"
+	fmt.Println("ACTIVE")
+	http.HandleFunc("/webhook", handleWebhook)
+	http.ListenAndServe(":3000", nil)
+
+}
+
+func handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	err := godotenv.Load()
 	if err != nil {
-		fmt.Printf("%sError loading .env file%s\n", red, reset)
+		fmt.Println("Error loading .env file")
 		return
 	}
 
-	scanner := bufio.NewScanner(os.Stdin)
-	fmt.Printf("%sEnter your acc email:%s\n", yellow, reset)
-	scanner.Scan()
-	gEmail := scanner.Text()
-
-	fmt.Printf("%sEnter your acc password:%s\n", yellow, reset)
-	// Note: This will not obscure the input. Consider a more secure way to handle password input.
-	scanner.Scan()
-	gPassword := scanner.Text()
-
-	gLink, exists := os.LookupEnv("GLINK")
-	if exists {
-		fmt.Printf("%sActivity tab link found in .env%s\n", green, reset)
-	} else {
-		fmt.Printf("%sNo activty tab link set in .env%s\n", red, reset)
+	// read the payload
+	payload, err := io.ReadAll(r.Body)
+	defer r.Body.Close()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, "Error reading request body")
+		return
 	}
 
-	fmt.Println(gEmail)
-	fmt.Println(gPassword)
-	fmt.Println(gLink)
+	// handle the signature from the header
+	signature := r.Header.Get("X-Hub-Signature-256")
 
-	// http.HandleFunc("/webhook", handleWebhook)
-	// http.ListenAndServe(":3000", nil)
+	// check for correct
+	if !isValidSignature(payload, signature, os.Getenv("WHSEC")) {
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprint(w, "Invalid signature")
+		return
+	}
+
+	updateAndPushReadme()
+
+	fmt.Fprint(w, "Webhook received and processed")
+
+}
+
+func isValidSignature(payload []byte, providedSignature, secret string) bool {
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(payload)
+	expectedMAC := mac.Sum(nil)
+
+	expectedSignature := "sha256=" + hex.EncodeToString(expectedMAC)
+
+	return hmac.Equal([]byte(providedSignature), []byte(expectedSignature))
+
+}
+
+func updateAndPushReadme() {
+
+	readmePath := "./README.md"
+
+	file, err := os.OpenFile(readmePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Println("Error opening README:", err)
+		return
+	}
+	defer file.Close()
+
+	// append new log entry at the end
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	newEntry := fmt.Sprintf("Push: %s\n", timestamp)
+	if _, err := file.WriteString(newEntry); err != nil {
+		fmt.Println("Error writing to README:", err)
+		return
+	}
+
+	// git commands to push webhook triggers
+	cmd := exec.Command("git", "add", "README.md")
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Update README")
+	cmd.Run()
+
+	cmd = exec.Command("git", "push", "origin", "main")
+	cmd.Run()
+
+	if err := cmd.Run(); err != nil {
+		log.Fatal(err)
+	}
+
 }
