@@ -25,6 +25,8 @@ func main() {
 
 func handleWebhook(w http.ResponseWriter, r *http.Request) {
 
+	fmt.Println("Webhook received")
+
 	err := godotenv.Load()
 	if err != nil {
 		fmt.Println("Error loading .env file")
@@ -88,17 +90,19 @@ func updateAndPushReadme() {
 	}
 
 	// git commands to push webhook triggers
-	cmd := exec.Command("git", "add", "README.md")
-	cmd.Run()
+	if err := exec.Command("git", "add", readmePath).Run(); err != nil {
+		log.Printf("Error adding README to git: %v", err)
+		return
+	}
 
-	cmd = exec.Command("git", "commit", "-m", "Update README")
-	cmd.Run()
+	if err := exec.Command("git", "commit", "-m", "Update README").Run(); err != nil {
+		log.Printf("Error committing README: %v", err)
+		return
+	}
 
-	cmd = exec.Command("git", "push", "origin", "main")
-	cmd.Run()
-
-	if err := cmd.Run(); err != nil {
-		log.Fatal(err)
+	if err := exec.Command("git", "push", "origin", "main").Run(); err != nil {
+		log.Printf("Error pushing README to remote: %v", err)
+		return
 	}
 
 }
