@@ -7,4 +7,4 @@
 - Once validated, README is updated with the current timestamp and updated README is pushed to a private Github repo.
 
 ### Why:
-- To log commit volume in restricted non-Github repos.
+- To log commit volume in restricted non-Github repos, e.g., school repos with proprietary modules and study projects.
